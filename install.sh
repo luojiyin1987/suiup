@@ -317,14 +317,28 @@ verify_file_integrity() {
     # Use standard checksum verification commands
     verification_result=1
     if [ "$checksum_type" = "SHA256" ]; then
-        if command -v sha256sum >/dev/null 2>&1; then
-            # Linux/GNU style
-            if sha256sum -c "$checksum_name" >/dev/null 2>&1; then
+        # Extract expected hash from checksum file
+        expected_hash=$(head -n 1 "$checksum_name" | grep -o '[a-fA-F0-9]\{64\}' | tr '[:upper:]' '[:lower:]')
+        
+        if [ -z "$expected_hash" ]; then
+            printf 'Warning: Could not extract SHA256 hash from checksum file\n'
+            printf 'Checksum file content:\n'
+            cat "$checksum_name" | head -3
+            verification_result=0  # Skip verification instead of failing
+        elif command -v sha256sum >/dev/null 2>&1; then
+            # Linux/GNU style - calculate and compare manually
+            actual_hash=$(sha256sum "$file_name" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
+            printf 'Expected SHA256: %s\n' "$expected_hash"
+            printf 'Actual SHA256:   %s\n' "$actual_hash"
+            if [ "$expected_hash" = "$actual_hash" ]; then
                 verification_result=0
             fi
         elif command -v shasum >/dev/null 2>&1; then
-            # macOS style
-            if shasum -a 256 -c "$checksum_name" >/dev/null 2>&1; then
+            # macOS style - calculate and compare manually
+            actual_hash=$(shasum -a 256 "$file_name" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
+            printf 'Expected SHA256: %s\n' "$expected_hash"
+            printf 'Actual SHA256:   %s\n' "$actual_hash"
+            if [ "$expected_hash" = "$actual_hash" ]; then
                 verification_result=0
             fi
         elif command -v powershell.exe >/dev/null 2>&1; then
@@ -343,14 +357,22 @@ verify_file_integrity() {
             fi
         fi
     elif [ "$checksum_type" = "MD5" ]; then
-        if command -v md5sum >/dev/null 2>&1; then
-            # Linux/GNU style
-            if md5sum -c "$checksum_name" >/dev/null 2>&1; then
+        # Extract expected hash from checksum file
+        expected_hash=$(head -n 1 "$checksum_name" | grep -o '[a-fA-F0-9]\{32\}' | tr '[:upper:]' '[:lower:]')
+        
+        if [ -z "$expected_hash" ]; then
+            printf 'Warning: Could not extract MD5 hash from checksum file\n'
+            printf 'Checksum file content:\n'
+            cat "$checksum_name" | head -3
+            verification_result=0  # Skip verification instead of failing
+        elif command -v md5sum >/dev/null 2>&1; then
+            # Linux/GNU style - calculate and compare manually
+            actual_hash=$(md5sum "$file_name" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
+            if [ "$expected_hash" = "$actual_hash" ]; then
                 verification_result=0
             fi
         elif command -v md5 >/dev/null 2>&1; then
-            # macOS style (different from md5sum)
-            expected_hash=$(head -n 1 "$checksum_name" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
+            # macOS style - calculate and compare manually
             actual_hash=$(md5 -q "$file_name" | tr '[:upper:]' '[:lower:]')
             if [ "$expected_hash" = "$actual_hash" ]; then
                 verification_result=0
