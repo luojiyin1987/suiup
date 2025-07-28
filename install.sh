@@ -36,7 +36,17 @@ get_latest_version() {
             wget --quiet -O- "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | grep '"tag_name":' | sed 's/.*"tag_name": "\([^"]*\)".*/\1/'
         fi
     else
-        printf '%bError: Neither curl nor wget is available. Please install one of them.%b\n' "${RED}" "${NC}"
+        printf '%bError: Neither curl nor wget is available for fetching release information.%b\n' "${RED}" "${NC}"
+        printf '\n%bNext steps:%b\n' "${CYAN}" "${NC}"
+        printf '1. Install curl or wget using your system package manager:\n'
+        printf '   - Ubuntu/Debian: sudo apt-get install curl\n'
+        printf '   - CentOS/RHEL/Fedora: sudo yum install curl (or dnf install curl)\n'
+        printf '   - macOS: curl is pre-installed, or install via Homebrew: brew install curl\n'
+        printf '   - Windows: Download from https://curl.se/windows/ or use WSL\n\n'
+        printf '2. Alternatively, download suiup manually:\n'
+        printf '   - Visit: https://github.com/%s/releases\n' "$GITHUB_REPO"
+        printf '   - Download the appropriate binary for your OS/architecture\n'
+        printf '   - Extract and place in your PATH\n'
         exit 1
     fi
 }
@@ -169,7 +179,17 @@ download_file() {
             wget --quiet "$url" -O "$output_file"
         fi
     else
-        printf '%bError: Neither curl nor wget is available. Please install one of them.%b\n' "${RED}" "${NC}"
+        printf '%bError: Neither curl nor wget is available for downloading files.%b\n' "${RED}" "${NC}"
+        printf '\n%bNext steps:%b\n' "${CYAN}" "${NC}"
+        printf '1. Install curl or wget using your system package manager:\n'
+        printf '   - Ubuntu/Debian: sudo apt-get install curl\n'
+        printf '   - CentOS/RHEL/Fedora: sudo yum install curl (or dnf install curl)\n'
+        printf '   - macOS: curl is pre-installed, or install via Homebrew: brew install curl\n'
+        printf '   - Windows: Download from https://curl.se/windows/ or use WSL\n\n'
+        printf '2. Alternatively, download suiup manually:\n'
+        printf '   - Visit: %s\n' "$url"
+        printf '   - Download and save the file manually\n'
+        printf '   - Continue with manual installation\n'
         exit 1
     fi
 }
@@ -454,7 +474,20 @@ install_suiup() {
     version=$(get_latest_version)
     
     if [ -z "$version" ]; then
-        printf '%bError: Could not fetch latest version%b\n' "${RED}" "${NC}"
+        printf '%bError: Could not fetch latest version from GitHub%b\n' "${RED}" "${NC}"
+        printf '\n%bPossible causes and solutions:%b\n' "${CYAN}" "${NC}"
+        printf '1. Network connectivity issues:\n'
+        printf '   - Check your internet connection\n'
+        printf '   - Try again in a few minutes\n\n'
+        printf '2. GitHub API rate limiting:\n'
+        printf '   - Set GITHUB_TOKEN environment variable with your personal access token\n'
+        printf '   - Create token at: https://github.com/settings/tokens\n\n'
+        printf '3. GitHub service issues:\n'
+        printf '   - Check GitHub status at: https://www.githubstatus.com/\n\n'
+        printf '4. Manual installation:\n'
+        printf '   - Visit: https://github.com/%s/releases\n' "$GITHUB_REPO"
+        printf '   - Download the latest release manually\n'
+        printf '   - Extract and install manually\n'
         exit 1
     fi
     
@@ -471,6 +504,21 @@ install_suiup() {
     
     if [ -z "$download_url" ]; then
         printf '%bError: Unsupported OS or architecture: %s/%s%b\n' "${RED}" "$os" "$arch" "${NC}"
+        printf '\n%bSupported platforms:%b\n' "${CYAN}" "${NC}"
+        printf '- Linux: x86_64 (amd64), arm64 (aarch64)\n'
+        printf '- macOS: x86_64 (Intel), arm64 (Apple Silicon)\n'
+        printf '- Windows: arm64 (currently only ARM64 is available)\n\n'
+        printf '%bNext steps:%b\n' "${CYAN}" "${NC}"
+        printf '1. Check if your architecture is supported:\n'
+        printf '   - Run: uname -m\n'
+        printf '   - Compare with supported architectures above\n\n'
+        printf '2. Alternative installation methods:\n'
+        printf '   - Install from source using Cargo:\n'
+        printf '     cargo install --git https://github.com/%s.git --locked\n' "$GITHUB_REPO"
+        printf '   - Check for community builds for your platform\n\n'
+        printf '3. Report platform request:\n'
+        printf '   - Open an issue at: https://github.com/%s/issues\n' "$GITHUB_REPO"
+        printf '   - Request support for %s/%s\n' "$os" "$arch"
         exit 1
     fi
     
@@ -504,7 +552,24 @@ install_suiup() {
             printf '%bWarning: Failed to download checksum file. Skipping integrity check.%b\n' "${YELLOW}" "${NC}"
         else
             if ! verify_file_integrity "$binary_file" "$checksum_file"; then
-                printf '%bError: File integrity check failed. Aborting installation.%b\n' "${RED}" "${NC}"
+                printf '%bError: File integrity check failed. Aborting installation for security.%b\n' "${RED}" "${NC}"
+                printf '\n%bPossible causes and solutions:%b\n' "${CYAN}" "${NC}"
+                printf '1. Corrupted download:\n'
+                printf '   - Try running the installer again\n'
+                printf '   - Check your network connection\n\n'
+                printf '2. Outdated checksum file:\n'
+                printf '   - The release may have been updated recently\n'
+                printf '   - Wait a few minutes and try again\n\n'
+                printf '3. Security concern:\n'
+                printf '   - The file may have been tampered with\n'
+                printf '   - Only proceed if you trust the source\n\n'
+                printf '4. Skip integrity check (not recommended):\n'
+                printf '   - Set SUIUP_SKIP_CHECKSUM=true environment variable\n'
+                printf '   - Re-run the installer: SUIUP_SKIP_CHECKSUM=true %s\n' "$0"
+                printf '   - Only use this if you understand the security implications\n\n'
+                printf '5. Manual verification:\n'
+                printf '   - Download from: https://github.com/%s/releases\n' "$GITHUB_REPO"
+                printf '   - Verify checksums manually before installation\n'
                 exit 1
             fi
         fi
