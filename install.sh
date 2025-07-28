@@ -458,12 +458,32 @@ install_suiup() {
         if command -v unzip >/dev/null 2>&1; then
             unzip -q "$binary_file" -d "$tmp_dir"
             source_binary="$tmp_dir/suiup.exe"
+        elif command -v powershell.exe >/dev/null 2>&1; then
+            # Use PowerShell Expand-Archive as fallback
+            printf 'Using PowerShell to extract zip file...\n'
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '$binary_file' -DestinationPath '$tmp_dir' -Force"
+            source_binary="$tmp_dir/suiup.exe"
         else
-            printf '%bError: unzip is required to extract Windows binaries but is not installed.%b\n' "${RED}" "${NC}"
+            printf '%bError: No zip extraction tool found!%b\n' "${RED}" "${NC}"
+            printf 'To extract Windows binaries, you need one of the following:\n\n'
+            printf '%b1. Install unzip:%b\n' "${CYAN}" "${NC}"
+            printf '   - On WSL/MSYS2/Cygwin: sudo apt-get install unzip (or equivalent)\n'
+            printf '   - On Windows with Chocolatey: choco install unzip\n'
+            printf '   - On Windows with Scoop: scoop install unzip\n'
+            printf '   - Download from: http://gnuwin32.sourceforge.net/packages/unzip.htm\n\n'
+            printf '%b2. Use PowerShell (recommended):%b\n' "${CYAN}" "${NC}"
+            printf '   PowerShell should be available on all modern Windows systems.\n'
+            printf '   If PowerShell is not available, please install it from:\n'
+            printf '   https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell\n\n'
+            printf '%b3. Manual extraction:%b\n' "${CYAN}" "${NC}"
+            printf '   - Download the zip file manually from: %s\n' "$download_url"
+            printf '   - Extract suiup.exe using Windows built-in zip support\n'
+            printf '   - Place suiup.exe in a directory that is in your PATH\n'
             exit 1
         fi
     else
         tar -xzf "$binary_file" -C "$tmp_dir"
+        source_binary="$tmp_dir/suiup"
     fi
     
     # Install to appropriate directory (allow user override via SUIUP_INSTALL_DIR)
