@@ -73,7 +73,8 @@ get_download_url() {
     elif [ "$os" = "linux" ]; then
         echo "${RELEASES_URL}/download/${version}/suiup-Linux-musl-${arch}.tar.gz"
     elif [ "$os" = "windows" ]; then
-        echo "${RELEASES_URL}/download/${version}/suiup-x86_64-pc-windows-msvc"
+        # Based on GitHub releases, Windows only has ARM64 version available
+        echo "${RELEASES_URL}/download/${version}/suiup-Windows-msvc-${arch}.zip"
     else
         echo ""
     fi
@@ -173,6 +174,170 @@ download_file() {
     fi
 }
 
+# Detect available hash calculation tool
+detect_hash_tool() {
+    # Check for sha256sum (Linux, some macOS with coreutils)
+    if command -v sha256sum >/dev/null 2>&1; then
+        echo "sha256sum"
+    # Check for shasum (macOS default)
+    elif command -v shasum >/dev/null 2>&1; then
+        echo "shasum"
+    # Check for PowerShell Get-FileHash (Windows)
+    elif command -v powershell.exe >/dev/null 2>&1; then
+        echo "powershell"
+    # Check for certutil (Windows fallback)
+    elif command -v certutil >/dev/null 2>&1; then
+        echo "certutil"
+    else
+        echo ""
+    fi
+}
+
+# Calculate SHA256 hash of a file
+calculate_hash() {
+    file_path=$1
+    hash_tool=$(detect_hash_tool)
+    
+    case "$hash_tool" in
+        "sha256sum")
+            sha256sum "$file_path" | cut -d' ' -f1
+            ;;
+        "shasum")
+            shasum -a 256 "$file_path" | cut -d' ' -f1
+            ;;
+        "powershell")
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-FileHash -Path '$file_path' -Algorithm SHA256).Hash.ToLower()"
+            ;;
+        "certutil")
+            # certutil outputs in a specific format, we need to extract the hash
+            certutil -hashfile "$file_path" SHA256 | grep -v "hash" | grep -v "CertUtil" | tr -d ' \r\n' | tr '[:upper:]' '[:lower:]'
+            ;;
+        *)
+            printf '%bWarning: No suitable hash calculation tool found. Skipping integrity check.%b\n' "${YELLOW}" "${NC}"
+            echo ""
+            ;;
+    esac
+}
+
+# Get the checksum download URL
+get_checksum_url() {
+    os=$1
+    arch=$2
+    version=$3
+    
+    # Construct the checksum filename based on OS and architecture (matching GitHub releases format)
+    if [ "$os" = "macos" ]; then
+        echo "${RELEASES_URL}/download/${version}/suiup-macOS-${arch}.tar.gz.sha256"
+    elif [ "$os" = "linux" ]; then
+        echo "${RELEASES_URL}/download/${version}/suiup-Linux-musl-${arch}.tar.gz.sha256"
+    elif [ "$os" = "windows" ]; then
+        echo "${RELEASES_URL}/download/${version}/suiup-Windows-msvc-${arch}.zip.sha256"
+    else
+        echo ""
+    fi
+}
+
+# Download checksum file
+download_checksum() {
+    checksum_url=$1
+    checksum_file=$2
+    
+    printf 'Downloading checksum file...\n'
+    
+    # Check if GITHUB_TOKEN is set and use it for authentication
+    auth_header=""
+    if [ -n "$GITHUB_TOKEN" ]; then
+        auth_header="Authorization: Bearer $GITHUB_TOKEN"
+    fi
+
+    if command -v curl >/dev/null 2>&1; then
+        if [ -n "$auth_header" ]; then
+            if curl -fsSL -H "$auth_header" "$checksum_url" -o "$checksum_file" 2>/dev/null; then
+                return 0
+            else
+                return 1
+            fi
+        else
+            if curl -fsSL "$checksum_url" -o "$checksum_file" 2>/dev/null; then
+                return 0
+            else
+                return 1
+            fi
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if [ -n "$auth_header" ]; then
+            if wget --quiet --header="$auth_header" "$checksum_url" -O "$checksum_file" 2>/dev/null; then
+                return 0
+            else
+                return 1
+            fi
+        else
+            if wget --quiet "$checksum_url" -O "$checksum_file" 2>/dev/null; then
+                return 0
+            else
+                return 1
+            fi
+        fi
+    else
+        return 1
+    fi
+}
+
+# Verify file integrity using checksum
+verify_file_integrity() {
+    binary_file=$1
+    checksum_file=$2
+    
+    # Check if we have a hash calculation tool
+    hash_tool=$(detect_hash_tool)
+    if [ -z "$hash_tool" ]; then
+        printf '%bWarning: Cannot verify file integrity - no hash calculation tool available%b\n' "${YELLOW}" "${NC}"
+        return 0  # Continue installation but with warning
+    fi
+    
+    # Check if checksum file exists
+    if [ ! -f "$checksum_file" ]; then
+        printf '%bWarning: Checksum file not found. Skipping integrity verification.%b\n' "${YELLOW}" "${NC}"
+        return 0  # Continue installation but with warning
+    fi
+    
+    printf 'Verifying file integrity...\n'
+    
+    # Calculate actual hash
+    actual_hash=$(calculate_hash "$binary_file")
+    if [ -z "$actual_hash" ]; then
+        printf '%bWarning: Failed to calculate file hash. Skipping integrity verification.%b\n' "${YELLOW}" "${NC}"
+        return 0
+    fi
+    
+    # Read expected hash from checksum file
+    # Handle different checksum file formats
+    if [ -s "$checksum_file" ]; then
+        # Try to extract hash (handle different formats)
+        expected_hash=$(head -n 1 "$checksum_file" | grep -o '[a-fA-F0-9]\{64\}' | head -n 1 | tr '[:upper:]' '[:lower:]')
+        
+        if [ -z "$expected_hash" ]; then
+            printf '%bWarning: Could not parse checksum file. Skipping integrity verification.%b\n' "${YELLOW}" "${NC}"
+            return 0
+        fi
+        
+        # Compare hashes
+        if [ "$actual_hash" = "$expected_hash" ]; then
+            printf '%bFile integrity verified successfully ✓%b\n' "${GREEN}" "${NC}"
+            return 0
+        else
+            printf '%bError: File integrity check failed!%b\n' "${RED}" "${NC}"
+            printf 'Expected: %s\n' "$expected_hash"
+            printf 'Actual:   %s\n' "$actual_hash"
+            printf 'The downloaded file may be corrupted or tampered with.\n'
+            return 1
+        fi
+    else
+        printf '%bWarning: Checksum file is empty. Skipping integrity verification.%b\n' "${YELLOW}" "${NC}"
+        return 0
+    fi
+}
+
 # Check for existing binaries that might conflict
 check_existing_binaries() {
     local install_dir=$1
@@ -234,6 +399,15 @@ install_suiup() {
         exit 1
     fi
     
+    # Special handling for Windows x86_64 (not currently available in releases)
+    if [ "$os" = "windows" ] && [ "$arch" = "x86_64" ]; then
+        printf '%bWarning: Windows x86_64 is not currently available. Only ARM64 is supported.%b\n' "${YELLOW}" "${NC}"
+        printf 'Available Windows architecture: arm64\n'
+        printf 'If you are running on ARM64 Windows, the script will continue...\n'
+        # Override architecture for Windows
+        arch="arm64"
+    fi
+    
     download_url=$(get_download_url "$os" "$arch" "$version")
     
     if [ -z "$download_url" ]; then
@@ -251,14 +425,43 @@ install_suiup() {
     trap 'rm -rf "$tmp_dir"' EXIT
     
     # Download the binary
-    binary_file="$tmp_dir/suiup.tar.gz"
+    if [ "$os" = "windows" ]; then
+        binary_file="$tmp_dir/suiup.zip"
+        checksum_file="$tmp_dir/suiup.zip.sha256"
+    else
+        binary_file="$tmp_dir/suiup.tar.gz"
+        checksum_file="$tmp_dir/suiup.tar.gz.sha256"
+    fi
     
     download_file "$download_url" "$binary_file"
+    
+    # Download and verify checksum file (unless skipped)
+    checksum_url=$(get_checksum_url "$os" "$arch" "$version")
+    
+    if [ -z "$checksum_url" ]; then
+        printf '%bWarning: No checksum URL available for this version. Skipping integrity check.%b\n' "${YELLOW}" "${NC}"
+    else
+        if ! download_checksum "$checksum_url" "$checksum_file"; then
+            printf '%bWarning: Failed to download checksum file. Skipping integrity check.%b\n' "${YELLOW}" "${NC}"
+        else
+            if ! verify_file_integrity "$binary_file" "$checksum_file"; then
+                printf '%bError: File integrity check failed. Aborting installation.%b\n' "${RED}" "${NC}"
+                exit 1
+            fi
+        fi
+    fi
     
     # Extract the binary
     printf 'Extracting binary...\n'
     if [ "$os" = "windows" ]; then
-        printf 'No extraction needed for Windows binaries.\n'
+        # Windows binary is in zip format
+        if command -v unzip >/dev/null 2>&1; then
+            unzip -q "$binary_file" -d "$tmp_dir"
+            source_binary="$tmp_dir/suiup.exe"
+        else
+            printf '%bError: unzip is required to extract Windows binaries but is not installed.%b\n' "${RED}" "${NC}"
+            exit 1
+        fi
     else
         tar -xzf "$binary_file" -C "$tmp_dir"
     fi
