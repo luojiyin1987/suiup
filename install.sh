@@ -206,50 +206,7 @@ download_file() {
     fi
 }
 
-# Detect available hash calculation tool
-detect_hash_tool() {
-    # Check for sha256sum (Linux, some macOS with coreutils)
-    if command -v sha256sum >/dev/null 2>&1; then
-        echo "sha256sum"
-    # Check for shasum (macOS default)
-    elif command -v shasum >/dev/null 2>&1; then
-        echo "shasum"
-    # Check for PowerShell Get-FileHash (Windows)
-    elif command -v powershell.exe >/dev/null 2>&1; then
-        echo "powershell"
-    # Check for certutil (Windows fallback)
-    elif command -v certutil >/dev/null 2>&1; then
-        echo "certutil"
-    else
-        echo ""
-    fi
-}
 
-# Calculate SHA256 hash of a file
-calculate_hash() {
-    file_path=$1
-    hash_tool=$(detect_hash_tool)
-    
-    case "$hash_tool" in
-        "sha256sum")
-            sha256sum "$file_path" | cut -d' ' -f1
-            ;;
-        "shasum")
-            shasum -a 256 "$file_path" | cut -d' ' -f1
-            ;;
-        "powershell")
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-FileHash -Path '$file_path' -Algorithm SHA256).Hash.ToLower()"
-            ;;
-        "certutil")
-            # certutil outputs in a specific format, we need to extract the hash
-            certutil -hashfile "$file_path" SHA256 | grep -v "hash" | grep -v "CertUtil" | tr -d ' \r\n' | tr '[:upper:]' '[:lower:]'
-            ;;
-        *)
-            printf '%bWarning: No suitable hash calculation tool found. Skipping integrity check.%b\n' "${YELLOW}" "${NC}"
-            echo ""
-            ;;
-    esac
-}
 
 # Get the checksum download URL
 get_checksum_url() {
@@ -315,78 +272,11 @@ download_checksum() {
     fi
 }
 
-# Parse checksum from various common checksum file formats
-parse_checksum_file() {
-    checksum_file=$1
-    target_filename=$2  # Optional: for format validation
-    
-    if [ ! -s "$checksum_file" ]; then
-        echo ""
-        return 1
-    fi
-    
-    # Read the checksum file content
-    content=$(cat "$checksum_file")
-    expected_hash=""
-    
-    # Try different parsing strategies, prioritizing more specific formats
-    
-    # Strategy 1: Look for lines containing the target filename (most reliable)
-    if [ -n "$target_filename" ]; then
-        # Extract basename for comparison
-        base_filename=$(basename "$target_filename")
-        line_with_file=$(echo "$content" | grep -i "$base_filename" | head -n 1)
-        
-        if [ -n "$line_with_file" ]; then
-            # Try hash + whitespace + filename format
-            expected_hash=$(echo "$line_with_file" | sed -n 's/^\([a-fA-F0-9]\{64\}\)[[:space:]]\+.*$/\1/p' | tr '[:upper:]' '[:lower:]')
-            
-            # Try filename + whitespace + hash format (some tools use this)
-            if [ -z "$expected_hash" ]; then
-                expected_hash=$(echo "$line_with_file" | sed -n 's/^.*[[:space:]]\+\([a-fA-F0-9]\{64\}\)$/\1/p' | tr '[:upper:]' '[:lower:]')
-            fi
-        fi
-    fi
-    
-    # Strategy 2: If no filename match, try first line with 64-char hex string
-    if [ -z "$expected_hash" ]; then
-        # Look for a line that starts with a 64-character hex string
-        expected_hash=$(echo "$content" | sed -n 's/^\([a-fA-F0-9]\{64\}\).*$/\1/p' | head -n 1 | tr '[:upper:]' '[:lower:]')
-    fi
-    
-    # Strategy 3: Look for any 64-character hex string anywhere in the file
-    if [ -z "$expected_hash" ]; then
-        expected_hash=$(echo "$content" | grep -o '[a-fA-F0-9]\{64\}' | head -n 1 | tr '[:upper:]' '[:lower:]')
-    fi
-    
-    # Strategy 4: Handle common hash tools output formats
-    if [ -z "$expected_hash" ]; then
-        # shasum/sha256sum format: "hash  filename" or "hash *filename"
-        expected_hash=$(echo "$content" | sed -n 's/^\([a-fA-F0-9]\{64\}\)[[:space:]]\+[\*[:space:]]*.*$/\1/p' | head -n 1 | tr '[:upper:]' '[:lower:]')
-    fi
-    
-    # Validate the extracted hash
-    if [ -n "$expected_hash" ] && [ ${#expected_hash} -eq 64 ]; then
-        echo "$expected_hash"
-        return 0
-    else
-        echo ""
-        return 1
-    fi
-}
 
-# Verify file integrity using checksum
+# Verify file integrity using standard checksum tools
 verify_file_integrity() {
     binary_file=$1
     checksum_file=$2
-    
-    # Check if we have a hash calculation tool
-    hash_tool=$(detect_hash_tool)
-    if [ -z "$hash_tool" ]; then
-        INTEGRITY_CHECK_SKIPPED=true
-        INTEGRITY_SKIP_REASON="No hash calculation tool available (sha256sum, shasum, powershell, or certutil)"
-        return 0  # Continue installation but mark as skipped
-    fi
     
     # Check if checksum file exists
     if [ ! -f "$checksum_file" ]; then
@@ -395,37 +285,108 @@ verify_file_integrity() {
         return 0  # Continue installation but mark as skipped
     fi
     
-    printf 'Verifying file integrity...\n'
+    printf 'Verifying file integrity using standard checksum tools...\n'
     
-    # Calculate actual hash
-    actual_hash=$(calculate_hash "$binary_file")
-    if [ -z "$actual_hash" ]; then
+    # Determine checksum type from file extension
+    case "$checksum_file" in
+        *.sha256)
+            checksum_type="SHA256"
+            ;;
+        *.md5)
+            checksum_type="MD5"
+            ;;
+        *)
+            INTEGRITY_CHECK_SKIPPED=true
+            INTEGRITY_SKIP_REASON="Unknown checksum file format"
+            return 0
+            ;;
+    esac
+    
+    # Change to the directory containing the files for verification
+    original_dir=$(pwd)
+    file_dir=$(dirname "$binary_file")
+    file_name=$(basename "$binary_file")
+    checksum_name=$(basename "$checksum_file")
+    
+    cd "$file_dir" || {
         INTEGRITY_CHECK_SKIPPED=true
-        INTEGRITY_SKIP_REASON="Failed to calculate file hash"
+        INTEGRITY_SKIP_REASON="Cannot change to file directory"
         return 0
+    }
+    
+    # Use standard checksum verification commands
+    verification_result=1
+    if [ "$checksum_type" = "SHA256" ]; then
+        if command -v sha256sum >/dev/null 2>&1; then
+            # Linux/GNU style
+            if sha256sum -c "$checksum_name" >/dev/null 2>&1; then
+                verification_result=0
+            fi
+        elif command -v shasum >/dev/null 2>&1; then
+            # macOS style
+            if shasum -a 256 -c "$checksum_name" >/dev/null 2>&1; then
+                verification_result=0
+            fi
+        elif command -v powershell.exe >/dev/null 2>&1; then
+            # Windows PowerShell - manual verification since no -c option
+            expected_hash=$(head -n 1 "$checksum_name" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
+            actual_hash=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-FileHash -Path '$file_name' -Algorithm SHA256).Hash.ToLower()" | tr -d '\r\n' | tr '[:upper:]' '[:lower:]')
+            if [ "$expected_hash" = "$actual_hash" ]; then
+                verification_result=0
+            fi
+        elif command -v certutil >/dev/null 2>&1; then
+            # Windows certutil - manual verification
+            expected_hash=$(head -n 1 "$checksum_name" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
+            actual_hash=$(certutil -hashfile "$file_name" SHA256 | grep -v "hash" | grep -v "CertUtil" | tr -d ' \r\n' | tr '[:upper:]' '[:lower:]')
+            if [ "$expected_hash" = "$actual_hash" ]; then
+                verification_result=0
+            fi
+        fi
+    elif [ "$checksum_type" = "MD5" ]; then
+        if command -v md5sum >/dev/null 2>&1; then
+            # Linux/GNU style
+            if md5sum -c "$checksum_name" >/dev/null 2>&1; then
+                verification_result=0
+            fi
+        elif command -v md5 >/dev/null 2>&1; then
+            # macOS style (different from md5sum)
+            expected_hash=$(head -n 1 "$checksum_name" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
+            actual_hash=$(md5 -q "$file_name" | tr '[:upper:]' '[:lower:]')
+            if [ "$expected_hash" = "$actual_hash" ]; then
+                verification_result=0
+            fi
+        fi
     fi
     
-    # Parse expected hash from checksum file using flexible parsing
-    expected_hash=$(parse_checksum_file "$checksum_file" "$binary_file")
+    cd "$original_dir" || true
     
-    if [ -z "$expected_hash" ]; then
-        INTEGRITY_CHECK_SKIPPED=true
-        INTEGRITY_SKIP_REASON="Could not parse checksum file format"
-        return 0
-    fi
-    
-    # Compare hashes
-    if [ "$actual_hash" = "$expected_hash" ]; then
-        printf '%bFile integrity verified successfully ✓%b\n' "${GREEN}" "${NC}"
+    # Check verification result
+    if [ $verification_result -eq 0 ]; then
+        printf '%b%s integrity verification passed ✓%b\n' "${GREEN}" "$checksum_type" "${NC}"
         return 0
     else
-        printf '%bError: File integrity check failed!%b\n' "${RED}" "${NC}"
-        printf 'Expected: %s\n' "$expected_hash"
-        printf 'Actual:   %s\n' "$actual_hash"
-        printf 'The downloaded file may be corrupted or tampered with.\n'
-        printf '\nChecksum file content:\n'
-        cat "$checksum_file"
-        return 1
+        # Check if we have any verification tool available
+        verification_tools_available=false
+        if [ "$checksum_type" = "SHA256" ]; then
+            if command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || command -v powershell.exe >/dev/null 2>&1 || command -v certutil >/dev/null 2>&1; then
+                verification_tools_available=true
+            fi
+        elif [ "$checksum_type" = "MD5" ]; then
+            if command -v md5sum >/dev/null 2>&1 || command -v md5 >/dev/null 2>&1; then
+                verification_tools_available=true
+            fi
+        fi
+        
+        if [ "$verification_tools_available" = "false" ]; then
+            INTEGRITY_CHECK_SKIPPED=true
+            INTEGRITY_SKIP_REASON="No suitable $checksum_type verification tool available"
+            return 0
+        else
+            printf '%bError: %s integrity verification failed!%b\n' "${RED}" "$checksum_type" "${NC}"
+            printf 'The downloaded file may be corrupted or tampered with.\n'
+            printf 'Checksum file: %s\n' "$checksum_file"
+            return 1
+        fi
     fi
 }
 
