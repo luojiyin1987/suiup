@@ -15,6 +15,18 @@ NC='\033[0m' # No Color
 printf '%bsuiup installer script%b\n' "${CYAN}" "${NC}"
 printf 'This script will install the suiup binary to your system.\n'
 
+# Environment variables for controlling behavior:
+# SUIUP_INSTALL_DIR - Custom installation directory
+# SUIUP_SKIP_CHECKSUM - Set to "true" to skip file integrity verification (NOT RECOMMENDED)
+# GITHUB_TOKEN - GitHub token for API authentication (avoids rate limits)
+#
+# Security Note: Skipping integrity verification reduces security. Only use SUIUP_SKIP_CHECKSUM 
+# in trusted environments or when you can manually verify the downloaded binary.
+
+# Global flag to track if integrity verification was skipped
+INTEGRITY_CHECK_SKIPPED=false
+INTEGRITY_SKIP_REASON=""
+
 # Get latest version from GitHub
 get_latest_version() {
     # Check if GITHUB_TOKEN is set and use it for authentication
@@ -371,14 +383,16 @@ verify_file_integrity() {
     # Check if we have a hash calculation tool
     hash_tool=$(detect_hash_tool)
     if [ -z "$hash_tool" ]; then
-        printf '%bWarning: Cannot verify file integrity - no hash calculation tool available%b\n' "${YELLOW}" "${NC}"
-        return 0  # Continue installation but with warning
+        INTEGRITY_CHECK_SKIPPED=true
+        INTEGRITY_SKIP_REASON="No hash calculation tool available (sha256sum, shasum, powershell, or certutil)"
+        return 0  # Continue installation but mark as skipped
     fi
     
     # Check if checksum file exists
     if [ ! -f "$checksum_file" ]; then
-        printf '%bWarning: Checksum file not found. Skipping integrity verification.%b\n' "${YELLOW}" "${NC}"
-        return 0  # Continue installation but with warning
+        INTEGRITY_CHECK_SKIPPED=true
+        INTEGRITY_SKIP_REASON="Checksum file not found"
+        return 0  # Continue installation but mark as skipped
     fi
     
     printf 'Verifying file integrity...\n'
@@ -386,7 +400,8 @@ verify_file_integrity() {
     # Calculate actual hash
     actual_hash=$(calculate_hash "$binary_file")
     if [ -z "$actual_hash" ]; then
-        printf '%bWarning: Failed to calculate file hash. Skipping integrity verification.%b\n' "${YELLOW}" "${NC}"
+        INTEGRITY_CHECK_SKIPPED=true
+        INTEGRITY_SKIP_REASON="Failed to calculate file hash"
         return 0
     fi
     
@@ -394,11 +409,8 @@ verify_file_integrity() {
     expected_hash=$(parse_checksum_file "$checksum_file" "$binary_file")
     
     if [ -z "$expected_hash" ]; then
-        printf '%bWarning: Could not parse checksum file. File contents:%b\n' "${YELLOW}" "${NC}"
-        printf '%s\n' "--- Checksum file content ---"
-        cat "$checksum_file" | head -5  # Show first 5 lines for debugging
-        printf '%s\n' "--- End of checksum file ---"
-        printf 'Skipping integrity verification.\n'
+        INTEGRITY_CHECK_SKIPPED=true
+        INTEGRITY_SKIP_REASON="Could not parse checksum file format"
         return 0
     fi
     
@@ -543,15 +555,21 @@ install_suiup() {
     download_file "$download_url" "$binary_file"
     
     # Download and verify checksum file (unless skipped)
-    checksum_url=$(get_checksum_url "$os" "$arch" "$version")
-    
-    if [ -z "$checksum_url" ]; then
-        printf '%bWarning: No checksum URL available for this version. Skipping integrity check.%b\n' "${YELLOW}" "${NC}"
+    if [ "$SUIUP_SKIP_CHECKSUM" = "true" ]; then
+        INTEGRITY_CHECK_SKIPPED=true
+        INTEGRITY_SKIP_REASON="Explicitly skipped by user (SUIUP_SKIP_CHECKSUM=true)"
     else
-        if ! download_checksum "$checksum_url" "$checksum_file"; then
-            printf '%bWarning: Failed to download checksum file. Skipping integrity check.%b\n' "${YELLOW}" "${NC}"
+        checksum_url=$(get_checksum_url "$os" "$arch" "$version")
+        
+        if [ -z "$checksum_url" ]; then
+            INTEGRITY_CHECK_SKIPPED=true
+            INTEGRITY_SKIP_REASON="No checksum URL available for this version"
         else
-            if ! verify_file_integrity "$binary_file" "$checksum_file"; then
+            if ! download_checksum "$checksum_url" "$checksum_file"; then
+                INTEGRITY_CHECK_SKIPPED=true
+                INTEGRITY_SKIP_REASON="Failed to download checksum file"
+            else
+                if ! verify_file_integrity "$binary_file" "$checksum_file"; then
                 printf '%bError: File integrity check failed. Aborting installation for security.%b\n' "${RED}" "${NC}"
                 printf '\n%bPossible causes and solutions:%b\n' "${CYAN}" "${NC}"
                 printf '1. Corrupted download:\n'
@@ -571,6 +589,7 @@ install_suiup() {
                 printf '   - Download from: https://github.com/%s/releases\n' "$GITHUB_REPO"
                 printf '   - Verify checksums manually before installation\n'
                 exit 1
+                fi
             fi
         fi
     fi
@@ -626,6 +645,25 @@ install_suiup() {
     mv "$tmp_dir/suiup" "$installed_path"
     
     printf '%bSuccessfully installed suiup to %s%b\n' "${GREEN}" "$installed_path" "${NC}"
+    
+    # Show critical security warning if integrity check was skipped
+    if [ "$INTEGRITY_CHECK_SKIPPED" = "true" ]; then
+        printf '\n%b⚠️  SECURITY WARNING ⚠️%b\n' "${RED}" "${NC}"
+        printf '%b╔══════════════════════════════════════════════════════════════════════════════════╗%b\n' "${RED}" "${NC}"
+        printf '%b║                       FILE INTEGRITY VERIFICATION SKIPPED                       ║%b\n' "${RED}" "${NC}"
+        printf '%b║                                                                                  ║%b\n' "${RED}" "${NC}"
+        printf '%b║ Reason: %-69s║%b\n' "${RED}" "$INTEGRITY_SKIP_REASON" "${NC}"
+        printf '%b║                                                                                  ║%b\n' "${RED}" "${NC}"
+        printf '%b║ This means the downloaded binary was NOT verified against official checksums.    ║%b\n' "${RED}" "${NC}"
+        printf '%b║ The installation may be compromised or corrupted.                               ║%b\n' "${RED}" "${NC}"
+        printf '%b║                                                                                  ║%b\n' "${RED}" "${NC}"
+        printf '%b║ RECOMMENDED ACTIONS:                                                            ║%b\n' "${RED}" "${NC}"
+        printf '%b║ • Verify the binary manually if possible                                        ║%b\n' "${RED}" "${NC}"
+        printf '%b║ • Only use if you trust the source completely                                   ║%b\n' "${RED}" "${NC}"
+        printf '%b║ • Consider reinstalling when the verification issue is resolved                 ║%b\n' "${RED}" "${NC}"
+        printf '%b╚══════════════════════════════════════════════════════════════════════════════════╝%b\n' "${RED}" "${NC}"
+        printf '\n'
+    fi
     
     # Check PATH
     check_path "$install_dir" "$os"
