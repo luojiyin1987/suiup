@@ -283,6 +283,66 @@ download_checksum() {
     fi
 }
 
+# Parse checksum from various common checksum file formats
+parse_checksum_file() {
+    checksum_file=$1
+    target_filename=$2  # Optional: for format validation
+    
+    if [ ! -s "$checksum_file" ]; then
+        echo ""
+        return 1
+    fi
+    
+    # Read the checksum file content
+    content=$(cat "$checksum_file")
+    expected_hash=""
+    
+    # Try different parsing strategies, prioritizing more specific formats
+    
+    # Strategy 1: Look for lines containing the target filename (most reliable)
+    if [ -n "$target_filename" ]; then
+        # Extract basename for comparison
+        base_filename=$(basename "$target_filename")
+        line_with_file=$(echo "$content" | grep -i "$base_filename" | head -n 1)
+        
+        if [ -n "$line_with_file" ]; then
+            # Try hash + whitespace + filename format
+            expected_hash=$(echo "$line_with_file" | sed -n 's/^\([a-fA-F0-9]\{64\}\)[[:space:]]\+.*$/\1/p' | tr '[:upper:]' '[:lower:]')
+            
+            # Try filename + whitespace + hash format (some tools use this)
+            if [ -z "$expected_hash" ]; then
+                expected_hash=$(echo "$line_with_file" | sed -n 's/^.*[[:space:]]\+\([a-fA-F0-9]\{64\}\)$/\1/p' | tr '[:upper:]' '[:lower:]')
+            fi
+        fi
+    fi
+    
+    # Strategy 2: If no filename match, try first line with 64-char hex string
+    if [ -z "$expected_hash" ]; then
+        # Look for a line that starts with a 64-character hex string
+        expected_hash=$(echo "$content" | sed -n 's/^\([a-fA-F0-9]\{64\}\).*$/\1/p' | head -n 1 | tr '[:upper:]' '[:lower:]')
+    fi
+    
+    # Strategy 3: Look for any 64-character hex string anywhere in the file
+    if [ -z "$expected_hash" ]; then
+        expected_hash=$(echo "$content" | grep -o '[a-fA-F0-9]\{64\}' | head -n 1 | tr '[:upper:]' '[:lower:]')
+    fi
+    
+    # Strategy 4: Handle common hash tools output formats
+    if [ -z "$expected_hash" ]; then
+        # shasum/sha256sum format: "hash  filename" or "hash *filename"
+        expected_hash=$(echo "$content" | sed -n 's/^\([a-fA-F0-9]\{64\}\)[[:space:]]\+[\*[:space:]]*.*$/\1/p' | head -n 1 | tr '[:upper:]' '[:lower:]')
+    fi
+    
+    # Validate the extracted hash
+    if [ -n "$expected_hash" ] && [ ${#expected_hash} -eq 64 ]; then
+        echo "$expected_hash"
+        return 0
+    else
+        echo ""
+        return 1
+    fi
+}
+
 # Verify file integrity using checksum
 verify_file_integrity() {
     binary_file=$1
@@ -310,31 +370,30 @@ verify_file_integrity() {
         return 0
     fi
     
-    # Read expected hash from checksum file
-    # Handle different checksum file formats
-    if [ -s "$checksum_file" ]; then
-        # Try to extract hash (handle different formats)
-        expected_hash=$(head -n 1 "$checksum_file" | grep -o '[a-fA-F0-9]\{64\}' | head -n 1 | tr '[:upper:]' '[:lower:]')
-        
-        if [ -z "$expected_hash" ]; then
-            printf '%bWarning: Could not parse checksum file. Skipping integrity verification.%b\n' "${YELLOW}" "${NC}"
-            return 0
-        fi
-        
-        # Compare hashes
-        if [ "$actual_hash" = "$expected_hash" ]; then
-            printf '%bFile integrity verified successfully ✓%b\n' "${GREEN}" "${NC}"
-            return 0
-        else
-            printf '%bError: File integrity check failed!%b\n' "${RED}" "${NC}"
-            printf 'Expected: %s\n' "$expected_hash"
-            printf 'Actual:   %s\n' "$actual_hash"
-            printf 'The downloaded file may be corrupted or tampered with.\n'
-            return 1
-        fi
-    else
-        printf '%bWarning: Checksum file is empty. Skipping integrity verification.%b\n' "${YELLOW}" "${NC}"
+    # Parse expected hash from checksum file using flexible parsing
+    expected_hash=$(parse_checksum_file "$checksum_file" "$binary_file")
+    
+    if [ -z "$expected_hash" ]; then
+        printf '%bWarning: Could not parse checksum file. File contents:%b\n' "${YELLOW}" "${NC}"
+        printf '%s\n' "--- Checksum file content ---"
+        cat "$checksum_file" | head -5  # Show first 5 lines for debugging
+        printf '%s\n' "--- End of checksum file ---"
+        printf 'Skipping integrity verification.\n'
         return 0
+    fi
+    
+    # Compare hashes
+    if [ "$actual_hash" = "$expected_hash" ]; then
+        printf '%bFile integrity verified successfully ✓%b\n' "${GREEN}" "${NC}"
+        return 0
+    else
+        printf '%bError: File integrity check failed!%b\n' "${RED}" "${NC}"
+        printf 'Expected: %s\n' "$expected_hash"
+        printf 'Actual:   %s\n' "$actual_hash"
+        printf 'The downloaded file may be corrupted or tampered with.\n'
+        printf '\nChecksum file content:\n'
+        cat "$checksum_file"
+        return 1
     fi
 }
 
