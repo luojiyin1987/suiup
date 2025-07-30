@@ -625,7 +625,7 @@ install_suiup() {
     mkdir -p "$install_dir"
     
     # Move binary to install directory
-    mv "$tmp_dir/suiup" "$installed_path"
+    mv "$source_binary" "$installed_path"
     
     printf '%bSuccessfully installed suiup to %s%b\n' "${GREEN}" "$installed_path" "${NC}"
     
