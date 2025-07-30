@@ -165,12 +165,16 @@ check_path() {
     esac
 }
 
-# Download a file with curl or wget
-download_file() {
+# Internal download function with configurable error handling
+_download_file_internal() {
     url=$1
     output_file=$2
+    silent_fail=${3:-false}
+    message=${4:-"Downloading %s to %s...\n"}
     
-    printf 'Downloading %s to %s...\n' "$url" "$output_file"
+    if [ "$silent_fail" = "false" ]; then
+        printf "$message" "$url" "$output_file"
+    fi
     
     # Check if GITHUB_TOKEN is set and use it for authentication
     auth_header=""
@@ -180,30 +184,66 @@ download_file() {
 
     if command -v curl >/dev/null 2>&1; then
         if [ -n "$auth_header" ]; then
-            curl -fsSL -H "$auth_header" "$url" -o "$output_file"
+            if [ "$silent_fail" = "true" ]; then
+                curl -fsSL -H "$auth_header" "$url" -o "$output_file" 2>/dev/null
+                return $?
+            else
+                curl -fsSL -H "$auth_header" "$url" -o "$output_file"
+                return $?
+            fi
         else
-            curl -fsSL "$url" -o "$output_file"
+            if [ "$silent_fail" = "true" ]; then
+                curl -fsSL "$url" -o "$output_file" 2>/dev/null
+                return $?
+            else
+                curl -fsSL "$url" -o "$output_file"
+                return $?
+            fi
         fi
     elif command -v wget >/dev/null 2>&1; then
         if [ -n "$auth_header" ]; then
-            wget --quiet --header="$auth_header" "$url" -O "$output_file"
+            if [ "$silent_fail" = "true" ]; then
+                wget --quiet --header="$auth_header" "$url" -O "$output_file" 2>/dev/null
+                return $?
+            else
+                wget --quiet --header="$auth_header" "$url" -O "$output_file"
+                return $?
+            fi
         else
-            wget --quiet "$url" -O "$output_file"
+            if [ "$silent_fail" = "true" ]; then
+                wget --quiet "$url" -O "$output_file" 2>/dev/null
+                return $?
+            else
+                wget --quiet "$url" -O "$output_file"
+                return $?
+            fi
         fi
     else
-        printf '%bError: Neither curl nor wget is available for downloading files.%b\n' "${RED}" "${NC}"
-        printf '\n%bNext steps:%b\n' "${CYAN}" "${NC}"
-        printf '1. Install curl or wget using your system package manager:\n'
-        printf '   - Ubuntu/Debian: sudo apt-get install curl\n'
-        printf '   - CentOS/RHEL/Fedora: sudo yum install curl (or dnf install curl)\n'
-        printf '   - macOS: curl is pre-installed, or install via Homebrew: brew install curl\n'
-        printf '   - Windows: Download from https://curl.se/windows/ or use WSL\n\n'
-        printf '2. Alternatively, download suiup manually:\n'
-        printf '   - Visit: %s\n' "$url"
-        printf '   - Download and save the file manually\n'
-        printf '   - Continue with manual installation\n'
-        exit 1
+        if [ "$silent_fail" = "true" ]; then
+            return 1
+        else
+            printf '%bError: Neither curl nor wget is available for downloading files.%b\n' "${RED}" "${NC}"
+            printf '\n%bNext steps:%b\n' "${CYAN}" "${NC}"
+            printf '1. Install curl or wget using your system package manager:\n'
+            printf '   - Ubuntu/Debian: sudo apt-get install curl\n'
+            printf '   - CentOS/RHEL/Fedora: sudo yum install curl (or dnf install curl)\n'
+            printf '   - macOS: curl is pre-installed, or install via Homebrew: brew install curl\n'
+            printf '   - Windows: Download from https://curl.se/windows/ or use WSL\n\n'
+            printf '2. Alternatively, download suiup manually:\n'
+            printf '   - Visit: %s\n' "$url"
+            printf '   - Download and save the file manually\n'
+            printf '   - Continue with manual installation\n'
+            exit 1
+        fi
     fi
+}
+
+# Download a file with curl or wget
+download_file() {
+    url=$1
+    output_file=$2
+    
+    _download_file_internal "$url" "$output_file" false "Downloading %s to %s...\n"
 }
 
 
@@ -231,45 +271,7 @@ download_checksum() {
     checksum_url=$1
     checksum_file=$2
     
-    printf 'Downloading checksum file...\n'
-    
-    # Check if GITHUB_TOKEN is set and use it for authentication
-    auth_header=""
-    if [ -n "$GITHUB_TOKEN" ]; then
-        auth_header="Authorization: Bearer $GITHUB_TOKEN"
-    fi
-
-    if command -v curl >/dev/null 2>&1; then
-        if [ -n "$auth_header" ]; then
-            if curl -fsSL -H "$auth_header" "$checksum_url" -o "$checksum_file" 2>/dev/null; then
-                return 0
-            else
-                return 1
-            fi
-        else
-            if curl -fsSL "$checksum_url" -o "$checksum_file" 2>/dev/null; then
-                return 0
-            else
-                return 1
-            fi
-        fi
-    elif command -v wget >/dev/null 2>&1; then
-        if [ -n "$auth_header" ]; then
-            if wget --quiet --header="$auth_header" "$checksum_url" -O "$checksum_file" 2>/dev/null; then
-                return 0
-            else
-                return 1
-            fi
-        else
-            if wget --quiet "$checksum_url" -O "$checksum_file" 2>/dev/null; then
-                return 0
-            else
-                return 1
-            fi
-        fi
-    else
-        return 1
-    fi
+    _download_file_internal "$checksum_url" "$checksum_file" true "Downloading checksum file...\n"
 }
 
 
