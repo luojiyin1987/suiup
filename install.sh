@@ -246,7 +246,61 @@ download_file() {
     _download_file_internal "$url" "$output_file" false "Downloading %s to %s...\n"
 }
 
-
+# Verify download integrity with checksum
+verify_download_integrity() {
+    os=$1
+    arch=$2
+    version=$3
+    binary_file=$4
+    checksum_file=$5
+    
+    # Skip if explicitly requested
+    if [ "$SUIUP_SKIP_CHECKSUM" = "true" ]; then
+        INTEGRITY_CHECK_SKIPPED=true
+        INTEGRITY_SKIP_REASON="Explicitly skipped by user (SUIUP_SKIP_CHECKSUM=true)"
+        return 0
+    fi
+    
+    # Get checksum URL
+    checksum_url=$(get_checksum_url "$os" "$arch" "$version")
+    if [ -z "$checksum_url" ]; then
+        INTEGRITY_CHECK_SKIPPED=true
+        INTEGRITY_SKIP_REASON="No checksum URL available for this version"
+        return 0
+    fi
+    
+    # Download checksum file
+    if ! download_checksum "$checksum_url" "$checksum_file"; then
+        INTEGRITY_CHECK_SKIPPED=true
+        INTEGRITY_SKIP_REASON="Failed to download checksum file"
+        return 0
+    fi
+    
+    # Verify file integrity - THIS IS THE KEY FUNCTION CALL
+    if ! verify_file_integrity "$binary_file" "$checksum_file"; then
+        printf '%bError: File integrity check failed. Aborting installation for security.%b\n' "${RED}" "${NC}"
+        printf '\n%bPossible causes and solutions:%b\n' "${CYAN}" "${NC}"
+        printf '1. Corrupted download:\n'
+        printf '   - Try running the installer again\n'
+        printf '   - Check your network connection\n\n'
+        printf '2. Outdated checksum file:\n'
+        printf '   - The release may have been updated recently\n'
+        printf '   - Wait a few minutes and try again\n\n'
+        printf '3. Security concern:\n'
+        printf '   - The file may have been tampered with\n'
+        printf '   - Only proceed if you trust the source\n\n'
+        printf '4. Skip integrity check (not recommended):\n'
+        printf '   - Set SUIUP_SKIP_CHECKSUM=true environment variable\n'
+        printf '   - Re-run the installer: SUIUP_SKIP_CHECKSUM=true %s\n' "$0"
+        printf '   - Only use this if you understand the security implications\n\n'
+        printf '5. Manual verification:\n'
+        printf '   - Download from: https://github.com/%s/releases\n' "$GITHUB_REPO"
+        printf '   - Verify checksums manually before installation\n'
+        return 1
+    fi
+    
+    return 0
+}
 
 # Get the checksum download URL
 get_checksum_url() {
@@ -540,43 +594,8 @@ install_suiup() {
     download_file "$download_url" "$binary_file"
     
     # Download and verify checksum file (unless skipped)
-    if [ "$SUIUP_SKIP_CHECKSUM" = "true" ]; then
-        INTEGRITY_CHECK_SKIPPED=true
-        INTEGRITY_SKIP_REASON="Explicitly skipped by user (SUIUP_SKIP_CHECKSUM=true)"
-    else
-        checksum_url=$(get_checksum_url "$os" "$arch" "$version")
-        
-        if [ -z "$checksum_url" ]; then
-            INTEGRITY_CHECK_SKIPPED=true
-            INTEGRITY_SKIP_REASON="No checksum URL available for this version"
-        else
-            if ! download_checksum "$checksum_url" "$checksum_file"; then
-                INTEGRITY_CHECK_SKIPPED=true
-                INTEGRITY_SKIP_REASON="Failed to download checksum file"
-            else
-                if ! verify_file_integrity "$binary_file" "$checksum_file"; then
-                printf '%bError: File integrity check failed. Aborting installation for security.%b\n' "${RED}" "${NC}"
-                printf '\n%bPossible causes and solutions:%b\n' "${CYAN}" "${NC}"
-                printf '1. Corrupted download:\n'
-                printf '   - Try running the installer again\n'
-                printf '   - Check your network connection\n\n'
-                printf '2. Outdated checksum file:\n'
-                printf '   - The release may have been updated recently\n'
-                printf '   - Wait a few minutes and try again\n\n'
-                printf '3. Security concern:\n'
-                printf '   - The file may have been tampered with\n'
-                printf '   - Only proceed if you trust the source\n\n'
-                printf '4. Skip integrity check (not recommended):\n'
-                printf '   - Set SUIUP_SKIP_CHECKSUM=true environment variable\n'
-                printf '   - Re-run the installer: SUIUP_SKIP_CHECKSUM=true %s\n' "$0"
-                printf '   - Only use this if you understand the security implications\n\n'
-                printf '5. Manual verification:\n'
-                printf '   - Download from: https://github.com/%s/releases\n' "$GITHUB_REPO"
-                printf '   - Verify checksums manually before installation\n'
-                exit 1
-                fi
-            fi
-        fi
+    if ! verify_download_integrity "$os" "$arch" "$version" "$binary_file" "$checksum_file"; then
+        exit 1
     fi
     
     # Extract the binary
