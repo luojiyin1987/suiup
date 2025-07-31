@@ -44,6 +44,7 @@ pub async fn run_doctor_checks() -> Result<()> {
     check_config_files(&mut check);
     check_dependencies(&mut check);
     check_network_connectivity(&mut check).await;
+    check_installed_binaries(&mut check);
 
     println!("\n{}", "Checkup complete.".bold());
     if errors > 0 {
@@ -233,6 +234,36 @@ async fn check_network_connectivity(check: &mut impl FnMut(&str, Result<String, 
             "GitHub API connectivity",
             Err("ERROR: Cannot connect to GitHub API. Downloads will fail.".to_string()),
         ),
+    }
+}
+
+
+
+
+
+fn check_installed_binaries(check: &mut impl FnMut(&str, Result<String, String>)) {
+    match InstalledBinaries::read_from_file() {
+        Ok(binaries) => {
+            let mut valid_count = 0;
+            let mut invalid_count = 0;
+            
+            for binary in binaries.binaries() {
+                let binary_path = get_default_bin_dir().join(&binary.binary_name);
+                if binary_path.exists() && binary_path.is_file() {
+                    valid_count += 1;
+                } else {
+                    invalid_count += 1;
+                }
+            }
+            
+            if invalid_count == 0 {
+                check("Installed binaries", Ok(format!("All {} binaries are valid", valid_count)));
+            } else {
+                check("Installed binaries", 
+                      Err(format!("WARN: {} valid, {} invalid binaries found", valid_count, invalid_count)));
+            }
+        }
+        Err(_) => check("Installed binaries", Ok("No binaries installed yet".to_string()))
     }
 }
 
