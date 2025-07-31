@@ -41,7 +41,6 @@ pub async fn run_doctor_checks() -> Result<()> {
 
     check("suiup data directory exists", check_suiup_data_dir());
     check("disk space", check_disk_space());
-    check("temp directory writable", check_temp_directory());
     check_path_variables(&mut check);
     check_config_files(&mut check);
     check_dependencies(&mut check);
@@ -74,45 +73,7 @@ fn check_suiup_data_dir() -> Result<String, String> {
     }
 }
 
-fn check_disk_space() -> Result<String, String> {
-    let suiup_dir = get_suiup_data_dir();
-    
-    // try to get disk space information    
-    match std::fs::metadata(&suiup_dir) {
-        Ok(_) => {
-            // simple check: if directory exists, assume enough space
-            // in a more complex implementation, you can use a third-party library to get accurate disk space
-            Ok("sufficient space available".to_string())
-        }
-        Err(_) => {
-            // if you cannot access the directory, give a warning
-            Err("WARN: Cannot check disk space - directory not accessible".to_string())
-        }
-    }
-}
 
-fn check_temp_directory() -> Result<String, String> {
-    // get system temporary directory
-    let temp_dir = std::env::temp_dir();
-    
-    // try to create a test file in the temporary directory
-    let test_file = temp_dir.join("suiup_temp_test.tmp");
-    
-    match std::fs::write(&test_file, "test") {
-        Ok(_) => {
-            // 清理测试文件
-            let _ = std::fs::remove_file(&test_file);
-            Ok(format!("writable at {}", temp_dir.display()))
-        }
-        Err(e) => {
-            Err(format!(
-                "ERROR: Cannot write to temp directory {}: {}",
-                temp_dir.display(),
-                e
-            ))
-        }
-    }
-}
 
 fn check_path_variables(check: &mut impl FnMut(&str, Result<String, String>)) {
     let default_bin_dir = get_default_bin_dir();
@@ -222,40 +183,23 @@ fn check_config_files(check: &mut impl FnMut(&str, Result<String, String>)) {
 }
 
 fn check_dependencies(check: &mut impl FnMut(&str, Result<String, String>)) {
-    // Check for rustc
-    match Command::new("rustc").arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            check("rustc", Ok(version));
-        }
-        _ => check(
-            "rustc",
-            Err("WARN: Not found. Required for --nightly builds.".to_string()),
-        ),
+    for tool in ["rustc", "cargo", "git"] {
+        let result = Command::new(tool).arg("--version").output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .ok_or_else(|| format!("WARN: Not found. Required for --nightly builds."));
+        check(tool, result);
     }
+}
 
-    // Check for cargo
-    match Command::new("cargo").arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            check("cargo", Ok(version));
-        }
-        _ => check(
-            "cargo",
-            Err("WARN: Not found. Required for --nightly builds.".to_string()),
-        ),
-    }
-
-    // Check for git
-    match Command::new("git").arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            check("git", Ok(version));
-        }
-        _ => check(
-            "git",
-            Err("WARN: Not found. Required for --nightly builds.".to_string()),
-        ),
+fn check_disk_space() -> Result<String, String> {
+    let suiup_dir = get_suiup_data_dir();
+    
+    // simple check: if directory is writable, assume enough space
+    match std::fs::metadata(&suiup_dir) {
+        Ok(_) => Ok("sufficient space available".to_string()),
+        Err(_) => Err("WARN: Cannot access directory".to_string()),
     }
 }
 
