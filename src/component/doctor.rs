@@ -180,16 +180,6 @@ fn check_config_files(check: &mut impl FnMut(&str, Result<String, String>)) {
     }
 }
 
-fn check_disk_space() -> Result<String, String> {
-    let suiup_dir = get_suiup_data_dir();
-
-    // simple check: if directory is writable, assume enough space
-    match std::fs::metadata(&suiup_dir) {
-        Ok(_) => Ok("sufficient space available".to_string()),
-        Err(_) => Err("WARN: Cannot access directory".to_string()),
-    }
-}
-
 fn check_dependencies(check: &mut impl FnMut(&str, Result<String, String>)) {
     for tool in ["rustc", "cargo", "git"] {
         let result = Command::new(tool)
@@ -200,6 +190,16 @@ fn check_dependencies(check: &mut impl FnMut(&str, Result<String, String>)) {
             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
             .ok_or_else(|| format!("WARN: Not found. Required for --nightly builds."));
         check(tool, result);
+    }
+}
+
+fn check_disk_space() -> Result<String, String> {
+    let suiup_dir = get_suiup_data_dir();
+
+    // simple check: if directory is writable, assume enough space
+    match std::fs::metadata(&suiup_dir) {
+        Ok(_) => Ok("sufficient space available".to_string()),
+        Err(_) => Err("WARN: Cannot access directory".to_string()),
     }
 }
 
