@@ -73,8 +73,6 @@ fn check_suiup_data_dir() -> Result<String, String> {
     }
 }
 
-
-
 fn check_path_variables(check: &mut impl FnMut(&str, Result<String, String>)) {
     let default_bin_dir = get_default_bin_dir();
     check(
@@ -182,24 +180,26 @@ fn check_config_files(check: &mut impl FnMut(&str, Result<String, String>)) {
     }
 }
 
+fn check_disk_space() -> Result<String, String> {
+    let suiup_dir = get_suiup_data_dir();
+
+    // simple check: if directory is writable, assume enough space
+    match std::fs::metadata(&suiup_dir) {
+        Ok(_) => Ok("sufficient space available".to_string()),
+        Err(_) => Err("WARN: Cannot access directory".to_string()),
+    }
+}
+
 fn check_dependencies(check: &mut impl FnMut(&str, Result<String, String>)) {
     for tool in ["rustc", "cargo", "git"] {
-        let result = Command::new(tool).arg("--version").output()
+        let result = Command::new(tool)
+            .arg("--version")
+            .output()
             .ok()
             .filter(|output| output.status.success())
             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
             .ok_or_else(|| format!("WARN: Not found. Required for --nightly builds."));
         check(tool, result);
-    }
-}
-
-fn check_disk_space() -> Result<String, String> {
-    let suiup_dir = get_suiup_data_dir();
-    
-    // simple check: if directory is writable, assume enough space
-    match std::fs::metadata(&suiup_dir) {
-        Ok(_) => Ok("sufficient space available".to_string()),
-        Err(_) => Err("WARN: Cannot access directory".to_string()),
     }
 }
 
@@ -293,7 +293,9 @@ mod tests {
         println!("Path exists: {}", path.exists());
         let result = check_suiup_data_dir();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("suiup data directory not found"));
+        assert!(result
+            .unwrap_err()
+            .contains("suiup data directory not found"));
 
         // Restore original env var
         #[cfg(windows)]
