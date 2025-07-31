@@ -237,16 +237,12 @@ async fn check_network_connectivity(check: &mut impl FnMut(&str, Result<String, 
     }
 }
 
-
-
-
-
 fn check_installed_binaries(check: &mut impl FnMut(&str, Result<String, String>)) {
     match InstalledBinaries::read_from_file() {
         Ok(binaries) => {
             let mut valid_count = 0;
             let mut invalid_count = 0;
-            
+
             for binary in binaries.binaries() {
                 let binary_path = get_default_bin_dir().join(&binary.binary_name);
                 if binary_path.exists() && binary_path.is_file() {
@@ -255,15 +251,26 @@ fn check_installed_binaries(check: &mut impl FnMut(&str, Result<String, String>)
                     invalid_count += 1;
                 }
             }
-            
+
             if invalid_count == 0 {
-                check("Installed binaries", Ok(format!("All {} binaries are valid", valid_count)));
+                check(
+                    "Installed binaries",
+                    Ok(format!("All {} binaries are valid", valid_count)),
+                );
             } else {
-                check("Installed binaries", 
-                      Err(format!("WARN: {} valid, {} invalid binaries found", valid_count, invalid_count)));
+                check(
+                    "Installed binaries",
+                    Err(format!(
+                        "WARN: {} valid, {} invalid binaries found",
+                        valid_count, invalid_count
+                    )),
+                );
             }
         }
-        Err(_) => check("Installed binaries", Ok("No binaries installed yet".to_string()))
+        Err(_) => check(
+            "Installed binaries",
+            Ok("No binaries installed yet".to_string()),
+        ),
     }
 }
 
@@ -338,7 +345,9 @@ mod tests {
         println!("Path exists: {}", path.exists());
         let result = check_suiup_data_dir();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("suiup data directory not found"));
+        assert!(result
+            .unwrap_err()
+            .contains("suiup data directory not found"));
 
         // Restore original env var
         #[cfg(windows)]
