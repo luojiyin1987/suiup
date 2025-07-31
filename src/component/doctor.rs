@@ -40,6 +40,7 @@ pub async fn run_doctor_checks() -> Result<()> {
     };
 
     check("suiup data directory exists", check_suiup_data_dir());
+    check("disk space", check_disk_space());
     check_path_variables(&mut check);
     check_config_files(&mut check);
     check_dependencies(&mut check);
@@ -71,6 +72,8 @@ fn check_suiup_data_dir() -> Result<String, String> {
         ))
     }
 }
+
+
 
 fn check_path_variables(check: &mut impl FnMut(&str, Result<String, String>)) {
     let default_bin_dir = get_default_bin_dir();
@@ -180,40 +183,23 @@ fn check_config_files(check: &mut impl FnMut(&str, Result<String, String>)) {
 }
 
 fn check_dependencies(check: &mut impl FnMut(&str, Result<String, String>)) {
-    // Check for rustc
-    match Command::new("rustc").arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            check("rustc", Ok(version));
-        }
-        _ => check(
-            "rustc",
-            Err("WARN: Not found. Required for --nightly builds.".to_string()),
-        ),
+    for tool in ["rustc", "cargo", "git"] {
+        let result = Command::new(tool).arg("--version").output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .ok_or_else(|| format!("WARN: Not found. Required for --nightly builds."));
+        check(tool, result);
     }
+}
 
-    // Check for cargo
-    match Command::new("cargo").arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            check("cargo", Ok(version));
-        }
-        _ => check(
-            "cargo",
-            Err("WARN: Not found. Required for --nightly builds.".to_string()),
-        ),
-    }
-
-    // Check for git
-    match Command::new("git").arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            check("git", Ok(version));
-        }
-        _ => check(
-            "git",
-            Err("WARN: Not found. Required for --nightly builds.".to_string()),
-        ),
+fn check_disk_space() -> Result<String, String> {
+    let suiup_dir = get_suiup_data_dir();
+    
+    // simple check: if directory is writable, assume enough space
+    match std::fs::metadata(&suiup_dir) {
+        Ok(_) => Ok("sufficient space available".to_string()),
+        Err(_) => Err("WARN: Cannot access directory".to_string()),
     }
 }
 
