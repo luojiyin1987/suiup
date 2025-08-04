@@ -24,7 +24,7 @@ printf 'This script will install the suiup binary to your system.\n'
 # in trusted environments or when you can manually verify the downloaded binary.
 
 # Global flag to track if integrity verification was skipped
-INTEGRITY_CHECK_SKIPPED=false
+SKIP_INTEGRITY_CHECK=false
 INTEGRITY_SKIP_REASON=""
 
 # Get latest version from GitHub
@@ -256,7 +256,7 @@ verify_download_integrity() {
     
     # Skip if explicitly requested
     if [ "$SUIUP_SKIP_CHECKSUM" = "true" ]; then
-        INTEGRITY_CHECK_SKIPPED=true
+        SKIP_INTEGRITY_CHECK=true
         INTEGRITY_SKIP_REASON="Explicitly skipped by user (SUIUP_SKIP_CHECKSUM=true)"
         return 0
     fi
@@ -264,14 +264,14 @@ verify_download_integrity() {
     # Get checksum URL
     checksum_url=$(get_checksum_url "$os" "$arch" "$version")
     if [ -z "$checksum_url" ]; then
-        INTEGRITY_CHECK_SKIPPED=true
+        SKIP_INTEGRITY_CHECK=true
         INTEGRITY_SKIP_REASON="No checksum URL available for this version"
         return 0
     fi
     
     # Download checksum file
     if ! download_checksum "$checksum_url" "$checksum_file"; then
-        INTEGRITY_CHECK_SKIPPED=true
+        SKIP_INTEGRITY_CHECK=true
         INTEGRITY_SKIP_REASON="Failed to download checksum file"
         return 0
     fi
@@ -336,7 +336,7 @@ verify_file_integrity() {
     
     # Check if checksum file exists
     if [ ! -f "$checksum_file" ]; then
-        INTEGRITY_CHECK_SKIPPED=true
+        SKIP_INTEGRITY_CHECK=true
         INTEGRITY_SKIP_REASON="Checksum file not found"
         return 0  # Continue installation but mark as skipped
     fi
@@ -352,7 +352,7 @@ verify_file_integrity() {
             checksum_type="MD5"
             ;;
         *)
-            INTEGRITY_CHECK_SKIPPED=true
+            SKIP_INTEGRITY_CHECK=true
             INTEGRITY_SKIP_REASON="Unknown checksum file format"
             return 0
             ;;
@@ -365,7 +365,7 @@ verify_file_integrity() {
     checksum_name=$(basename "$checksum_file")
     
     cd "$file_dir" || {
-        INTEGRITY_CHECK_SKIPPED=true
+        SKIP_INTEGRITY_CHECK=true
         INTEGRITY_SKIP_REASON="Cannot change to file directory"
         return 0
     }
@@ -456,7 +456,7 @@ verify_file_integrity() {
         fi
         
         if [ "$verification_tools_available" = "false" ]; then
-            INTEGRITY_CHECK_SKIPPED=true
+            SKIP_INTEGRITY_CHECK=true
             INTEGRITY_SKIP_REASON="No suitable $checksum_type verification tool available"
             return 0
         else
@@ -651,7 +651,7 @@ install_suiup() {
     printf '%bSuccessfully installed suiup to %s%b\n' "${GREEN}" "$installed_path" "${NC}"
     
     # Show critical security warning if integrity check was skipped
-    if [ "$INTEGRITY_CHECK_SKIPPED" = "true" ]; then
+    if [ "$SKIP_INTEGRITY_CHECK" = "true" ]; then
         printf '\n%b⚠️  SECURITY WARNING ⚠️%b\n' "${RED}" "${NC}"
         printf '%b╔══════════════════════════════════════════════════════════════════════════════════╗%b\n' "${RED}" "${NC}"
         printf '%b║                       FILE INTEGRITY VERIFICATION SKIPPED                       ║%b\n' "${RED}" "${NC}"
