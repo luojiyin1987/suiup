@@ -95,7 +95,7 @@ get_download_url() {
     elif [ "$os" = "linux" ]; then
         echo "${RELEASES_URL}/download/${version}/suiup-Linux-musl-${arch}.tar.gz"
     elif [ "$os" = "windows" ]; then
-        # Based on GitHub releases, Windows only has ARM64 version available
+        # Based on GitHub releases, Windows version is available for both x86_64 and arm64
         echo "${RELEASES_URL}/download/${version}/suiup-Windows-msvc-${arch}.zip"
     else
         echo ""
