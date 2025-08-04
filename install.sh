@@ -542,14 +542,7 @@ install_suiup() {
         exit 1
     fi
     
-    # Special handling for Windows x86_64 (not currently available in releases)
-    if [ "$os" = "windows" ] && [ "$arch" = "x86_64" ]; then
-        printf '%bWarning: Windows x86_64 is not currently available. Only ARM64 is supported.%b\n' "${YELLOW}" "${NC}"
-        printf 'Available Windows architecture: arm64\n'
-        printf 'If you are running on ARM64 Windows, the script will continue...\n'
-        # Override architecture for Windows
-        arch="arm64"
-    fi
+
     
     download_url=$(get_download_url "$os" "$arch" "$version")
     
@@ -558,7 +551,7 @@ install_suiup() {
         printf '\n%bSupported platforms:%b\n' "${CYAN}" "${NC}"
         printf '- Linux: x86_64 (amd64), arm64 (aarch64)\n'
         printf '- macOS: x86_64 (Intel), arm64 (Apple Silicon)\n'
-        printf '- Windows: arm64 (currently only ARM64 is available)\n\n'
+        printf '- Windows: x86_64 (amd64), arm64 (aarch64)\n\n'
         printf '%bNext steps:%b\n' "${CYAN}" "${NC}"
         printf '1. Check if your architecture is supported:\n'
         printf '   - Run: uname -m\n'
