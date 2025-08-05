@@ -238,38 +238,94 @@ async fn check_network_connectivity(check: &mut impl FnMut(&str, Result<String, 
 }
 
 fn check_installed_binaries(check: &mut impl FnMut(&str, Result<String, String>)) {
+    // First check suiup itself
+    check_suiup_installation(check);
+    
+    // Then check registered binaries
+    check_registered_binaries(check);
+}
+
+fn check_suiup_installation(check: &mut impl FnMut(&str, Result<String, String>)) {
+    // Check if suiup is in PATH
+    #[cfg(unix)]
+    let which_cmd = "which";
+    #[cfg(windows)]
+    let which_cmd = "where";
+    
+    if let Ok(output) = std::process::Command::new(which_cmd).arg("suiup").output() {
+        if output.status.success() {
+            let suiup_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            check(
+                "suiup binary",
+                Ok(format!("found at {}", suiup_path))
+            );
+        } else {
+            check(
+                "suiup binary", 
+                Err("WARN: suiup not found in PATH".to_string())
+            );
+        }
+    } else {
+        check(
+            "suiup binary",
+            Err("WARN: Unable to check suiup installation".to_string())
+        );
+    }
+}
+
+fn check_registered_binaries(check: &mut impl FnMut(&str, Result<String, String>)) {
     match InstalledBinaries::read_from_file() {
         Ok(binaries) => {
-            let mut valid_count = 0;
-            let mut invalid_count = 0;
+            let mut valid_binaries = Vec::new();
+            let mut invalid_binaries = Vec::new();
 
             for binary in binaries.binaries() {
                 let binary_path = get_default_bin_dir().join(&binary.binary_name);
                 if binary_path.exists() && binary_path.is_file() {
-                    valid_count += 1;
+                    valid_binaries.push(format!("{} ({})", binary.binary_name, binary.version));
                 } else {
-                    invalid_count += 1;
+                    invalid_binaries.push(format!("{} ({})", binary.binary_name, binary.version));
                 }
             }
 
-            if invalid_count == 0 {
-                check(
-                    "Installed binaries",
-                    Ok(format!("All {} binaries are valid", valid_count)),
-                );
+            if invalid_binaries.is_empty() {
+                if valid_binaries.is_empty() {
+                    check(
+                        "Registered binaries",
+                        Ok("No binaries registered yet".to_string()),
+                    );
+                } else {
+                    check(
+                        "Registered binaries",
+                        Ok(format!("All {} binaries are valid: {}", 
+                            valid_binaries.len(),
+                            valid_binaries.join(", ")
+                        )),
+                    );
+                }
             } else {
+                let invalid_list = invalid_binaries.join(", ");
+                let valid_list = if valid_binaries.is_empty() {
+                    "none".to_string()
+                } else {
+                    valid_binaries.join(", ")
+                };
+                
                 check(
-                    "Installed binaries",
+                    "Registered binaries",
                     Err(format!(
-                        "WARN: {} valid, {} invalid binaries found",
-                        valid_count, invalid_count
+                        "WARN: {} valid, {} missing/invalid. Valid: {}. Missing/Invalid: {}",
+                        valid_binaries.len(), 
+                        invalid_binaries.len(),
+                        valid_list,
+                        invalid_list
                     )),
                 );
             }
         }
         Err(_) => check(
-            "Installed binaries",
-            Ok("No binaries installed yet".to_string()),
+            "Registered binaries",
+            Ok("No binaries registered yet".to_string()),
         ),
     }
 }
