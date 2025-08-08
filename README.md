@@ -36,7 +36,7 @@ curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | 
 ```
 
 > [!TIP]
-> Set `SUIUP_INSTALL_DIR` environment variable to customize the installation directory: `SUIUP_INSTALL_DIR=/custom/path curl -sSfL ... | sh`
+> Set `SUIUP_INSTALL_DIR` environment variable to customize the installation directory: `SUIUP_INSTALL_DIR=/custom/path curl -sSfL ... | bash`
 
 ### From Cargo
 ```bash
