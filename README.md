@@ -32,7 +32,7 @@ With `suiup`, you can:
 
 ### From Script
 ```bash
-curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
+curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | bash
 ```
 
 > [!TIP]
