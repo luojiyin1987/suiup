@@ -143,9 +143,9 @@ check_path() {
         separator=";"
     fi
     
-    # POSIX-compliant way to check if directory is in PATH
-    case ":$PATH:" in
-        *":$dir:"*) 
+    # Check if directory is in PATH using appropriate separator
+    case "${separator}$PATH${separator}" in
+        *"${separator}$dir${separator}"*) 
             printf '%b%s is already in your PATH%b\n' "${GREEN}" "$dir" "${NC}"
             ;;
         *)
