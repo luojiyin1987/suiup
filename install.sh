@@ -380,7 +380,11 @@ verify_file_integrity() {
             printf 'Warning: Could not extract SHA256 hash from checksum file\n'
             printf 'Checksum file content:\n'
             cat "$checksum_name" | head -3
-            verification_result=0  # Skip verification instead of failing
+            # Do NOT mark as passed. Treat as a skipped verification with a clear reason.
+            SKIP_INTEGRITY_CHECK=true
+            INTEGRITY_SKIP_REASON="Checksum file has unexpected format (missing SHA256)"
+            cd "$original_dir" || true
+            return 0
         elif command -v sha256sum >/dev/null 2>&1; then
             # Linux/GNU style - calculate and compare manually
             actual_hash=$(sha256sum "$file_name" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
@@ -420,7 +424,11 @@ verify_file_integrity() {
             printf 'Warning: Could not extract MD5 hash from checksum file\n'
             printf 'Checksum file content:\n'
             cat "$checksum_name" | head -3
-            verification_result=0  # Skip verification instead of failing
+            # Do NOT mark as passed. Treat as a skipped verification with a clear reason.
+            SKIP_INTEGRITY_CHECK=true
+            INTEGRITY_SKIP_REASON="Checksum file has unexpected format (missing MD5)"
+            cd "$original_dir" || true
+            return 0
         elif command -v md5sum >/dev/null 2>&1; then
             # Linux/GNU style - calculate and compare manually
             actual_hash=$(md5sum "$file_name" | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')
